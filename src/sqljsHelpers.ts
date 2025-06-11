@@ -1,4 +1,4 @@
-import sqlite from 'sql.js';
+import * as sqlite from 'sql.js';
 import { createStore, get, getMany, setMany } from 'idb-keyval';
 
 export interface EncryptedDataItem {

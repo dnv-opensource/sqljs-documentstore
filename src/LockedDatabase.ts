@@ -1,5 +1,5 @@
 import {BindParams, QueryExecResult, type Database} from 'sql.js';
-import AsyncLock from "async-lock";
+import * as AsyncLock from "async-lock";
 
 export class LockedDatabase implements ILockedDatabase {
   lock = new AsyncLock();

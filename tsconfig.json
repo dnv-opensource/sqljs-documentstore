@@ -6,7 +6,6 @@
     "strict": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
-    "allowSyntheticDefaultImports": true,
     "lib": ["es6", "dom", "esnext.asynciterable"],
     "sourceMap": true,
     "declaration": true,

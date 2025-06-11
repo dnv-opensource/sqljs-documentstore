@@ -1,6 +1,6 @@
 /* eslint-disable no-use-before-define */
 /* eslint-disable lines-between-class-members */
-import _ from 'lodash';
+import * as _ from 'lodash';
 import { ILockedDatabase } from './LockedDatabase';
 import { sqljsHelpers } from './sqljsHelpers';
 import { SqlValue } from 'sql.js';
