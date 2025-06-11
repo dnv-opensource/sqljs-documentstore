@@ -1,0 +1,40 @@
+{
+  "name": "@dnvgl-electricgrid/sqljs-documentstore",
+  "version": "1.0.0",
+  "description": "Minimal, encrypted, sql friendly typed document store, with support for indexed columns. Protects against transactional conflicts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "/dist",
+    "/src"
+  ],
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": [
+    "SQLite",
+    "DocumentStore",
+    "Document",
+    "Store",
+    "ORM",
+    "Micro",
+    "Typescript",
+    "Generic",
+    "ES7"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "async-lock": "^1.4.1",
+    "idb-keyval": "^6.2.2",
+    "lodash": "^4.17.21",
+    "sql.js": "^1.13.0"
+
+  },
+  "devDependencies": {
+    "@types/async-lock": "^1.4.2",
+    "@types/lodash": "^4.17.17",
+    "@types/sql.js": "^1.4.9",
+    "typescript": "^5.8.3"
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+}
