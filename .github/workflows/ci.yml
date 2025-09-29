@@ -10,26 +10,25 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
-          # Get all history for version calculation
-          fetch-depth: 0
-      - uses: actions/setup-node@v3
+          fetch-depth: 0 # Get all history for version calculation
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: lts/*
           registry-url: 'https://registry.npmjs.org'
           scope: '@dnvgl'
-      - name: Install GitVersion
-        uses: gittools/actions/gitversion/setup@v0.9.7
+          cache: 'pnpm'
+      - uses: gittools/actions/gitversion/setup@v0.9.7
         with:
           versionSpec: '5.x'
-      - name: Determine Version
-        uses: gittools/actions/gitversion/execute@v0.9.7
+      - uses: gittools/actions/gitversion/execute@v0.9.7
         with:
           useConfigFile: true
-      - run: yarn version --new-version $GITVERSION_SEMVER --no-git-tag-version
-      - run: yarn install --frozen-lockfile
-      - run: yarn build
-      - run: yarn publish --access public
+      - run: pnpm version $GITVERSION_SEMVER --no-git-tag-version
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm publish --access public --no-git-checks
         env:
           NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}

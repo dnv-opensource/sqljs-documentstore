@@ -36,7 +36,7 @@ export namespace sqljsPersistence {
     }
 
     const k = await cryptoHelpers.getKey(passPhrase, salt);
-    const existingData = await cryptoHelpers.decrypt(k.key, iv, encryptedData);
+    const existingData = await cryptoHelpers.decrypt(k.key, iv as BufferSource, encryptedData as BufferSource);
     return { key: k.key, database: new sqlJsStatic.Database(new Uint8Array(existingData)) };
   }
 }
@@ -63,13 +63,13 @@ export namespace cryptoHelpers {
   export async function getKey(passphrase: string, salt?: Uint8Array): Promise<{key: CryptoKey, salt: Uint8Array}> {
     salt = salt ?? crypto.getRandomValues(new Uint8Array(16));
     const keyMaterial = await crypto.subtle.importKey('raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveKey']);
-    var r = { key: await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: salt, iterations: 100_000, hash: 'SHA-256' }, keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']), salt: salt};
+    var r = { key: await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: salt as BufferSource, iterations: 100_000, hash: 'SHA-256' }, keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']), salt: salt};
     return r;
   }
 
   export async function encrypt(key: CryptoKey, salt: Uint8Array, data: Uint8Array): Promise<EncryptedDataItem> {
     const iv = crypto.getRandomValues(new Uint8Array(12)); // 96-bit IV for AES-GCM
-    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data);
+    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, key, data as BufferSource);
     return {salt: salt, iv: iv, data: new Uint8Array(encrypted)};
   }
 

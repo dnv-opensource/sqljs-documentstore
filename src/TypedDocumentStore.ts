@@ -43,10 +43,10 @@ export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType
   /**
    * ensure table (schema) exists
    */
-  init(options: { autoMigrateIndexChanges: boolean } = { autoMigrateIndexChanges: true }): void {
+  async init(options: { autoMigrateIndexChanges: boolean } = { autoMigrateIndexChanges: true }) {
     const tableExists = sqljsHelpers.isTable(this.db, this.tableName);
     if (!tableExists) {
-      this.db.txn(`${this.tableName} create table`, txnId => {
+      await this.db.txnAsync(`${this.tableName} create table`, async txnId => {
         const createTableSql = `create table if not exists ${this.tableName} (${dbRow.id} primary key not null, ${dbRow.json} ${this._indexColumnNamesSql});`;
         this.db.run(txnId, createTableSql);
       });
@@ -63,20 +63,20 @@ export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType
         return;
       }
       console.log(`adding missing columns to ${this.tableName}`, missingColumns);
-      this.db.txn(`${this.tableName} add missing columns`, txnId => {
+      await this.db.txnAsync(`${this.tableName} add missing columns`, async txnId => {
         missingColumns.forEach(columnName => this.db.run(txnId, `alter table ${this.tableName} add column ${columnName};`));
-        this.rebuildIndexes(txnId);
+        await this.rebuildIndexes(txnId);
       });
     }
   }
 
-   get(id: unknown) : T {
+   async get(id: unknown) {
     const result = this._tryGet(id);
     if (result === null || result === undefined) throw new Error(`${TypedDocumentStore.name}<${this.tableName}>.get(${id}) was undefined`);
     return <T>result;
   }
 
-  tryGet(id: unknown) : T|undefined {
+  async tryGet(id: unknown) {
     return this._tryGet(id);
   }
 
@@ -86,7 +86,7 @@ export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType
     return <T>JSON.parse(rows[0].json);
   }
 
-   getMany(ids: unknown[]): T[] {
+   async getMany(ids: unknown[]) {
     const results = this._tryGetMany(ids);
     const missingIds = ids.filter((_, i) => results[i] === null || results[i] === undefined);
     if (missingIds.length > 0) throw new Error(`${TypedDocumentStore.name}<${this.tableName}>.getMany(...) was undefined for ids ${missingIds.join(', ')}`);
@@ -97,7 +97,7 @@ export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType
    * returns ids => in order set of results, if no result for given id, array item will be null
    * prefer use of 'getMany' if all items are expected to exist
    */
-  tryGetMany(ids: unknown[]) {
+  async tryGetMany(ids: unknown[]) {
     return this._tryGetMany(ids);
   }
 
@@ -118,12 +118,12 @@ export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType
     }
   }
 
-  exists(id: unknown) : boolean {
+  async exists(id: unknown) {
     const result = (this.db.exec(`select 1 from ${this.tableName} where ${dbRow.id} = ?;`, [<SqlValue>id]));
     return (result.values?.length ?? 0) > 0;
   }
 
-  getAll(): T[] {
+  async getAll() {
     const results = sqljsHelpers.query<DbRow>(this.db, `select ${dbRow.json} from ${this.tableName};`);
     return results.map(x => <T>JSON.parse(x.json));
   }
@@ -133,7 +133,7 @@ export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType
    * @example .query(x => `where ${x.name} like ? and ${x.active} = ?`, [nameSearchValue, isActive]);
    * @example .query(x => `where ${x.name} like ?1 and ${x.active} = ?2`, [nameSearchValue, isActive]);
    */
-  query(whereSql: ((x: Record<keyof TIndex, string>) => string), params: unknown[]): T[] {
+  async query(whereSql: ((x: Record<keyof TIndex, string>) => string), params: unknown[]) {
     const querySql = `select ${dbRow.id}, ${dbRow.json} from ${this.tableName} ${whereSql(this._buildQueryObject())};`;
     const results = sqljsHelpers.query<DbRow>(this.db, querySql, params);
     return results.map(x => <T>JSON.parse(x.json));
@@ -142,13 +142,13 @@ export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType
   /**
    * Return just index values, helpful for doing fast queries on indexed fields without needing to fetch and deserialize the entire object
    */
-  queryIndexes(whereSql?: ((x: Record<keyof TIndex | 'id', string>) => string), params?: unknown[]): ({ [k in keyof(TIndex)]: ReturnType<TIndex[k]>} & Pick<T, 'id'>)[] {
+  async queryIndexes(whereSql?: ((x: Record<keyof TIndex | 'id', string>) => string), params?: unknown[]): Promise<({ [k in keyof(TIndex)]: ReturnType<TIndex[k]>} & Pick<T, 'id'>)[]> {
     const querySql = `select ${dbRow.id}${this._indexColumnNamesSql} from ${this.tableName} ${whereSql !== undefined ? whereSql(this._buildQueryObject()) : ''};`;
     const results = sqljsHelpers.query<({ [k in keyof(TIndex)]: ReturnType<TIndex[k]>} & Pick<T, 'id'>)>(this.db, querySql, params);
     return results;
   }
 
-  count(): number {
+  async count() {
     const result = this.db.exec(`select count(1) from ${this.tableName};`);
     return result[0].values[0][0] as number;
   }
@@ -156,17 +156,17 @@ export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType
   /**
    * insert or update a single document
    */
-  set(txnId: string, value: T) : void { this.db.run(txnId, this.setSql, this._buildParams(value)); }
+  async set(txnId: string, value: T) { this.db.run(txnId, this.setSql, this._buildParams(value)); }
 
   /**
    * insert or update many documents, prefer use of insertMany if data is expected to not exist
    */
-  setMany(txnId: string, values: T[]) : void {
+  async setMany(txnId: string, values: T[]) {
     if (values.length === 0) return;
     values.forEach(value => this.db.run(txnId, this.setSql, this._buildParams(value)));
   }
 
-  insertMany(txnId: string, values: T[]) : void {
+  async insertMany(txnId: string, values: T[]) {
     if (values.length === 0) return;
     values.forEach(value => this.db.run(txnId, this.insertSql, this._buildParams(value)));
   }
@@ -174,24 +174,24 @@ export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType
    /**
    * fetch, modify, and update a document
    */
-  update(txnId: string, id: Pick<T, 'id'>['id'], updateAction: (existing: Omit<T, 'id'>) => void) : void {
-    const value = this.get(id);
+  async update(txnId: string, id: Pick<T, 'id'>['id'], updateAction: (existing: Omit<T, 'id'>) => void) {
+    const value = await this.get(id);
     updateAction(value);
-    this.set(txnId, value);
+    await this.set(txnId, value);
   }
 
   /**
    * like update, but falls back to initializer value if document doesn't already exist
    */
-  upsert(txnId: string, initializer: T, updateAction: (existing: Omit<T, 'id'>) => void) : void {
-    const value = this.tryGet(initializer.id) ?? initializer;
+  async upsert(txnId: string, initializer: T, updateAction: (existing: Omit<T, 'id'>) => void) {
+    const value = await this.tryGet(initializer.id) ?? initializer;
     updateAction(value);
-    this.set(txnId, value);
+    await this.set(txnId, value);
   }
 
-  remove(txnId: string, id: Pick<T, 'id'>['id']): void { this.db.run(txnId, `delete from ${this.tableName} where ${dbRow.id} = ?;`, sqljsHelpers.sanitizeParams([id])); }
-  removeMany(txnId: string, ids: Pick<T, 'id'>['id'][]) : void { if (ids.length === 0) return; this.db.run(txnId, `delete from ${this.tableName} where ${dbRow.id} in (${'?,'.repeat(ids.length).slice(0, -1)});`, sqljsHelpers.sanitizeParams(ids)); }
-  removeAll(txnId: string): void { this.db.run(txnId, `delete from ${this.tableName};`); }
+  async remove(txnId: string, id: Pick<T, 'id'>['id']) { this.db.run(txnId, `delete from ${this.tableName} where ${dbRow.id} = ?;`, sqljsHelpers.sanitizeParams([id])); }
+  async removeMany(txnId: string, ids: Pick<T, 'id'>['id'][]) { if (ids.length === 0) return; this.db.run(txnId, `delete from ${this.tableName} where ${dbRow.id} in (${'?,'.repeat(ids.length).slice(0, -1)});`, sqljsHelpers.sanitizeParams(ids)); }
+  async removeAll(txnId: string) { this.db.run(txnId, `delete from ${this.tableName};`); }
 
   private _buildQueryObject(): Record<keyof TIndex, string> {
     const queryObject = <any>{};
@@ -209,7 +209,7 @@ export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType
 
   private _indexValues(obj: T) { return _.map(this.indexedFields, accessor => accessor(obj)); }
 
-  private rebuildIndexes(txnId: string) { this.setMany(txnId, this.getAll()); }
+  private async rebuildIndexes(txnId: string) { await this.setMany(txnId, await this.getAll()); }
 }
 
 export interface ITypedDocumentStore<T extends IdInterface, TIndex extends TIndexType<T>> extends TypedDocumentStore<T, TIndex>{};
