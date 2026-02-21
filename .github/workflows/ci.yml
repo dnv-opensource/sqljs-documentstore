@@ -9,6 +9,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -29,6 +32,5 @@ jobs:
       - run: pnpm version $GITVERSION_SEMVER --no-git-tag-version
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-      - run: pnpm publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
+      - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: pnpm publish --access public --no-git-checks
