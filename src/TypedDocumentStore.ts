@@ -53,7 +53,7 @@ export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType
     } else if (options.autoMigrateIndexChanges) {
       //check for and append missing columns
       const result = sqljsHelpers.query<table_infoType>(this.db, `PRAGMA table_info('${this.tableName}')`);
-      if (!result) {
+      if (result.length === 0) {
         console.warn(`unable to get table_info for ${this.tableName}`);
         return;
       }
@@ -119,8 +119,8 @@ export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType
   }
 
   async exists(id: unknown) {
-    const result = (this.db.exec(`select 1 from ${this.tableName} where ${dbRow.id} = ?;`, [<SqlValue>id]));
-    return result.length > 0;
+    const result = (this.db.exec(`select count(1) from ${this.tableName} where ${dbRow.id} = ?;`, [<SqlValue>id]));
+    return result[0].values[0][0] as number > 0;
   }
 
   async getAll() {
