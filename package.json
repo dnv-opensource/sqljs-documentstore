@@ -1,6 +1,7 @@
 {
   "name": "sqljs-documentstore",
   "version": "1.1.0",
+  "type": "module",
   "description": "Minimal, encrypted, sql friendly typed document store, with support for indexed columns. Protects against transactional conflicts",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -9,7 +10,8 @@
     "/src"
   ],
   "scripts": {
-    "build": "tsc"
+    "build:worker": "tsc --project tsconfig.worker.json && node scripts/buildWorker.cjs",
+    "build": "tsc --project tsconfig.worker.json && node scripts/buildWorker.cjs && tsc"
   },
   "keywords": [
     "SQLite",
@@ -28,15 +30,15 @@
   "private": false,
   "dependencies": {
     "async-lock": "^1.4.1",
-    "idb-keyval": "^6.2.2",
-    "lodash": "^4.17.21",
-    "sql.js": "^1.13.0"
+    "lodash": "^4.18.1",
+    "sql.js": "^1.14.1"
   },
   "devDependencies": {
     "@types/async-lock": "^1.4.2",
-    "@types/lodash": "^4.17.20",
-    "@types/sql.js": "^1.4.9",
-    "typescript": "^5.9.2"
+    "@types/lodash": "^4.17.24",
+    "@types/sql.js": "^1.4.11",
+    "esbuild": "^0.28.0",
+    "typescript": "^6.0.3"
   },
   "packageManager": "pnpm@10.15.1+sha512.34e538c329b5553014ca8e8f4535997f96180a1d0f614339357449935350d924e22f8614682191264ec33d1462ac21561aff97f6bb18065351c162c7e8f6de67"
 }

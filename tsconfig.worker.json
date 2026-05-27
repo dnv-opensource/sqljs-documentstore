@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "moduleResolution": "Bundler",
+    "module": "ESNext",
+    "target": "ES2022",
+    "strict": true,
+    "lib": ["ES2022", "WebWorker"],
+    "noEmit": true
+  },
+  "include": ["src/persistenceWorker.ts"]
+}

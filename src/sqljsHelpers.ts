@@ -1,43 +1,50 @@
 import * as sqlite from 'sql.js';
-import { createStore, get, getMany, setMany } from 'idb-keyval';
-
-export interface EncryptedDataItem {
-  salt: Uint8Array;
-  iv: Uint8Array;
-  data: Uint8Array;
-}
+import { WORKER_CODE } from './persistenceWorker.generated';
 
 export namespace sqljsPersistence {
-  const store = createStore('sqljs-documentstore', 'databases');
-  
-  export async function save(dbName: string, key: CryptoKey, db: Pick<sqlite.Database, 'export'>): Promise<void> {
-    const saltItem = await get<Uint8Array>(`${dbName}-salt`, store);
-    const salt = saltItem ? new Uint8Array(saltItem) : crypto.getRandomValues(new Uint8Array(16));
+  let worker: Worker | null = null;
+  let messageId = 0;
+  const pending = new Map<number, { resolve: (value: any) => void; reject: (reason: any) => void }>();
 
-    await _save(dbName, key, salt, db);
+  function getWorker(): Worker {
+    if (!worker) {
+      const blob = new Blob([WORKER_CODE], { type: 'application/javascript' });
+      worker = new Worker(URL.createObjectURL(blob));
+      worker.onmessage = (e) => {
+        const { id, success, error, ...rest } = e.data;
+        const p = pending.get(id);
+        if (!p) return;
+        pending.delete(id);
+        if (success) p.resolve(rest);
+        else p.reject(new Error(error));
+      };
+    }
+    return worker;
   }
 
-  async function _save(dbName: string, key: CryptoKey, salt: Uint8Array, db: Pick<sqlite.Database, 'export'>): Promise<void> {
-    const encryptedData = await cryptoHelpers.encrypt(key, salt, db.export());
-    await setMany([
-      [`${dbName}`, encryptedData.data],
-      [`${dbName}-iv`, encryptedData.iv],
-      [`${dbName}-salt`, encryptedData.salt]
-    ], store)
+  function postMessage(msg: any, transfer: Transferable[] = []): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const id = messageId++;
+      pending.set(id, { resolve, reject });
+      getWorker().postMessage({ ...msg, id }, transfer);
+    });
+  }
+
+  export async function save(dbName: string, key: CryptoKey, db: Pick<sqlite.Database, 'export'>): Promise<void> {
+    const rawData = db.export();
+    await postMessage({ type: 'save', dbName, key, rawData }, [rawData.buffer]);
   }
 
   export async function load(dbName: string, passPhrase: string, sqlJsStatic: sqlite.SqlJsStatic): Promise<{database: sqlite.Database, key: CryptoKey}> {
-    const [encryptedData, iv, salt] = await getMany<Uint8Array>([dbName, `${dbName}-iv`, `${dbName}-salt`], store);
-    if (!encryptedData) {
+    const result = await postMessage({ type: 'load', dbName, passPhrase });
+    if (result.isNew) {
       const newDb = new sqlJsStatic.Database();
-      const k = await cryptoHelpers.getKey(passPhrase);
-      await _save(dbName, k.key, k.salt, newDb);
-      return { key: k.key, database: newDb };
+      // Save the new empty database through the worker
+      const rawData = newDb.export();
+      await postMessage({ type: 'save', dbName, key: result.key, rawData }, [rawData.buffer]);
+      return { key: result.key, database: newDb };
     }
-
-    const k = await cryptoHelpers.getKey(passPhrase, salt);
-    const existingData = await cryptoHelpers.decrypt(k.key, iv as BufferSource, encryptedData as BufferSource);
-    return { key: k.key, database: new sqlJsStatic.Database(new Uint8Array(existingData)) };
+    return { key: result.key, database: new sqlJsStatic.Database(new Uint8Array(result.rawData)) };
   }
 }
 
@@ -57,26 +64,6 @@ export namespace sqljsHelpers {
 
   export function isTable(db: Pick<sqlite.Database, 'exec'>, table: string): boolean { return db.exec("SELECT count(1) FROM sqlite_master WHERE type='table' AND name=?;", [table])[0]!.values[0][0] as number > 0; }
   export function sanitizeParams(params: any[]): sqlite.SqlValue[] { return params.map(v => v == undefined ? null : v == true ? 1 : v == false ? 0 : v); }
-}
-
-export namespace cryptoHelpers {
-  export async function getKey(passphrase: string, salt?: Uint8Array): Promise<{key: CryptoKey, salt: Uint8Array}> {
-    salt = salt ?? crypto.getRandomValues(new Uint8Array(16));
-    const keyMaterial = await crypto.subtle.importKey('raw', new TextEncoder().encode(passphrase), 'PBKDF2', false, ['deriveKey']);
-    var r = { key: await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: salt as BufferSource, iterations: 100_000, hash: 'SHA-256' }, keyMaterial, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']), salt: salt};
-    return r;
-  }
-
-  export async function encrypt(key: CryptoKey, salt: Uint8Array, data: Uint8Array): Promise<EncryptedDataItem> {
-    const iv = crypto.getRandomValues(new Uint8Array(12)); // 96-bit IV for AES-GCM
-    const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv as BufferSource }, key, data as BufferSource);
-    return {salt: salt, iv: iv, data: new Uint8Array(encrypted)};
-  }
-
-  export async function decrypt(key: CryptoKey, iv: BufferSource, encryptedData: BufferSource): Promise<ArrayBuffer> {
-    const data = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, encryptedData);
-    return data;
-  }
 }
 
 export namespace flushHelpers {
