@@ -13,24 +13,28 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # Get all history for version calculation
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v5
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: lts/*
           registry-url: 'https://registry.npmjs.org'
           scope: '@dnvgl'
           cache: 'pnpm'
-      - uses: gittools/actions/gitversion/setup@v0.9.7
+      - uses: gittools/actions/gitversion/setup@v4.5.0
         with:
-          versionSpec: '5.x'
-      - uses: gittools/actions/gitversion/execute@v0.9.7
+          versionSpec: '6.7.x'
+      - uses: gittools/actions/gitversion/execute@v4.5.0
+        id: gitversion
         with:
           useConfigFile: true
-      - run: pnpm version $GITVERSION_SEMVER --no-git-tag-version
+      - run: pnpm version ${{ steps.gitversion.outputs.semVer }} --no-git-tag-version
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+      - run: pnpm test -- --run
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm e2e
       - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: pnpm publish --access public --no-git-checks
