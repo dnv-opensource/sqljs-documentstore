@@ -28,8 +28,6 @@ jobs:
           versionSpec: '6.7.x'
       - uses: gittools/actions/gitversion/execute@v4.5.0
         id: gitversion
-        with:
-          useConfigFile: true
       - run: pnpm version ${{ steps.gitversion.outputs.semVer }} --no-git-tag-version
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
