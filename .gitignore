@@ -3,3 +3,4 @@ dist
 sqljs-documentstore-*.tgz
 **/*.generated.ts
 .temp
+test-results

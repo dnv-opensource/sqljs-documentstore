@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import initSqlJs, { Database } from 'sql.js';
-import { sqljsHelpers } from './sqljsHelpers';
-import { LockedDatabase } from './LockedDatabase';
+import { sqljsHelpers } from '../src/sqljsHelpers';
+import { LockedDatabase } from '../src/LockedDatabase';
 
 let db: Database;
 let lockedDb: LockedDatabase;

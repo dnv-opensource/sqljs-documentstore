@@ -30,21 +30,26 @@ export namespace sqljsPersistence {
     });
   }
 
-  export async function save(dbName: string, key: CryptoKey, db: Pick<sqlite.Database, 'export'>): Promise<void> {
+  export async function save(dbName: string, key: CryptoKey, salt: Uint8Array, db: Pick<sqlite.Database, 'export'>): Promise<void> {
     const rawData = db.export();
-    await postMessage({ type: 'save', dbName, key, rawData }, [rawData.buffer]);
+    await postMessage({ type: 'save', dbName, key, salt, rawData }, [rawData.buffer]);
   }
 
-  export async function load(dbName: string, passPhrase: string, sqlJsStatic: sqlite.SqlJsStatic): Promise<{database: sqlite.Database, key: CryptoKey}> {
+  export async function dbExists(dbName: string): Promise<boolean> {
+    const result = await postMessage({ type: 'exists', dbName });
+    return result.exists;
+  }
+
+  export async function load(dbName: string, passPhrase: string, sqlJsStatic: sqlite.SqlJsStatic): Promise<{database: sqlite.Database, key: CryptoKey, salt: Uint8Array}> {
     const result = await postMessage({ type: 'load', dbName, passPhrase });
     if (result.isNew) {
       const newDb = new sqlJsStatic.Database();
       // Save the new empty database through the worker
       const rawData = newDb.export();
-      await postMessage({ type: 'save', dbName, key: result.key, rawData }, [rawData.buffer]);
-      return { key: result.key, database: newDb };
+      await postMessage({ type: 'save', dbName, key: result.key, salt: result.salt, rawData }, [rawData.buffer]);
+      return { key: result.key, salt: new Uint8Array(result.salt), database: newDb };
     }
-    return { key: result.key, database: new sqlJsStatic.Database(new Uint8Array(result.rawData)) };
+    return { key: result.key, salt: new Uint8Array(result.salt), database: new sqlJsStatic.Database(new Uint8Array(result.rawData)) };
   }
 }
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import initSqlJs, { Database } from 'sql.js';
-import { LockedDatabase } from './LockedDatabase';
-import { TypedDocumentStore } from './TypedDocumentStore';
+import { LockedDatabase } from '../src/LockedDatabase';
+import { TypedDocumentStore } from '../src/TypedDocumentStore';
 
 interface TestDoc {
   id: string;

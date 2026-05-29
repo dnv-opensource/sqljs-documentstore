@@ -13,7 +13,8 @@
     "clean": "rimraf dist .temp",
     "build:worker": "tsc --project tsconfig.worker.json && node scripts/buildWorker.cjs",
     "build": "pnpm run build:worker && tsc --project tsconfig.app.json",
-    "test": "vitest"
+    "test": "vitest",
+    "e2e": "pnpm run build:worker && playwright test"
   },
   "keywords": [
     "SQLite",
@@ -37,6 +38,7 @@
     "sql.js": "^1.14.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/async-lock": "^1.4.2",
     "@types/lodash": "^4.17.24",
     "@types/sql.js": "^1.4.11",

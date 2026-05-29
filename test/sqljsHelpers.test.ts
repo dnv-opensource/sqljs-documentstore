@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import initSqlJs, { Database } from 'sql.js';
-import { sqljsHelpers } from './sqljsHelpers';
+import { sqljsHelpers } from '../src/sqljsHelpers';
 
 let db: Database;
 

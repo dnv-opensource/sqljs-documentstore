@@ -39,25 +39,16 @@ async function migrateFromIndexedDb(dbName: string, passPhrase: string): Promise
   const decrypted = await decrypt(k.key, new Uint8Array(iv), new Uint8Array(encryptedData));
   const rawData = new Uint8Array(decrypted);
 
-  await handleSave(dbName, k.key, rawData);
+  await handleSave(dbName, k.key, k.salt, rawData);
   await IDB.delMany([dbName, `${dbName}-iv`, `${dbName}-salt`], store);
 
   return { rawData, key: k.key, salt: k.salt, isNew: false };
 }
 
-async function handleSave(dbName: string, key: CryptoKey, rawData: Uint8Array): Promise<void> {
+async function handleSave(dbName: string, key: CryptoKey, salt: Uint8Array, rawData: Uint8Array): Promise<void> {
   const handle = await getFileHandle(dbName);
   const accessHandle = await handle.createSyncAccessHandle();
   try {
-    let salt: Uint8Array;
-    if (accessHandle.getSize() >= HEADER_LENGTH) {
-      const existingHeader = new Uint8Array(HEADER_LENGTH);
-      accessHandle.read(existingHeader, { at: 0 });
-      salt = existingHeader.slice(MAGIC.length + 1 + IV_LENGTH, HEADER_LENGTH);
-    } else {
-      salt = crypto.getRandomValues(new Uint8Array(SALT_LENGTH));
-    }
-
     const encrypted = await encrypt(key, salt, rawData);
 
     const header = new Uint8Array(HEADER_LENGTH);
@@ -119,16 +110,38 @@ async function handleLoad(dbName: string, passPhrase: string): Promise<LoadResul
   }
 }
 
-type SaveMessage = { type: 'save'; id: number; dbName: string; key: CryptoKey; rawData: Uint8Array };
+type SaveMessage = { type: 'save'; id: number; dbName: string; key: CryptoKey; salt: Uint8Array; rawData: Uint8Array };
 type LoadMessage = { type: 'load'; id: number; dbName: string; passPhrase: string };
-type WorkerMessage = SaveMessage | LoadMessage;
+type ExistsMessage = { type: 'exists'; id: number; dbName: string };
+type WorkerMessage = SaveMessage | LoadMessage | ExistsMessage;
+
+async function handleExists(dbName: string): Promise<boolean> {
+  // Check legacy IndexedDB
+  const store = IDB.createStore('sqljs-documentstore', 'databases');
+  const encryptedData = await IDB.get<Uint8Array>(dbName, store);
+  if (encryptedData) return true;
+
+  // Check OPFS
+  const root = await navigator.storage.getDirectory();
+  try {
+    const handle = await root.getFileHandle(`${dbName}.db`, { create: false });
+    const accessHandle = await handle.createSyncAccessHandle();
+    try {
+      return accessHandle.getSize() >= HEADER_LENGTH;
+    } finally {
+      accessHandle.close();
+    }
+  } catch {
+    return false;
+  }
+}
 
 self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
   const { type, id } = e.data;
   try {
     if (type === 'save') {
-      const { dbName, key, rawData } = e.data;
-      await handleSave(dbName, key, rawData);
+      const { dbName, key, salt, rawData } = e.data;
+      await handleSave(dbName, key, new Uint8Array(salt), rawData);
       (self as unknown as Worker).postMessage({ id, success: true });
     } else if (type === 'load') {
       const { dbName, passPhrase } = e.data;
@@ -137,8 +150,12 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
         { id, success: true, rawData: result.rawData, key: result.key, salt: result.salt, isNew: result.isNew },
         [result.rawData.buffer] as any
       );
+    } else if (type === 'exists') {
+      const { dbName } = e.data;
+      const exists = await handleExists(dbName);
+      (self as unknown as Worker).postMessage({ id, success: true, exists });
     }
   } catch (error: any) {
-    (self as unknown as Worker).postMessage({ id, success: false, error: error.message });
+    (self as unknown as Worker).postMessage({ id, success: false, error: error?.message || error?.name || String(error) });
   }
 };
