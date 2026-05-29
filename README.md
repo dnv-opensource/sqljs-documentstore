@@ -3,6 +3,10 @@
 `sqljs-documentstore` Minimal, encrypted, sql friendly typed document store, with support for indexed columns. Protects against transactional conflicts.  
 The schema for each table is [id, json, ...indexedColumns]
 
+Storage is encrypted (AES-GCM) and persisted to the Origin Private File System (OPFS) via a dedicated Web Worker — keeping the main thread free during save/load. Automatic migration from the legacy IndexedDB format is handled transparently on first load.
+
+**Browser requirements:** OPFS, Web Workers, Web Crypto API (all modern browsers).
+
 
 ## Install
 `npm install --save sqljs-documentstore`
