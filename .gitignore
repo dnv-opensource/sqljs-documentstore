@@ -2,3 +2,4 @@ node_modules
 dist
 sqljs-documentstore-*.tgz
 **/*.generated.ts
+.temp

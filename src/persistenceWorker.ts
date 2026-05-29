@@ -1,3 +1,5 @@
+import * as IDB from 'idb-keyval';
+
 const MAGIC = 'SQLDS';
 const VERSION = 1;
 const IV_LENGTH = 12;
@@ -24,6 +26,23 @@ async function decrypt(key: CryptoKey, iv: Uint8Array, encryptedData: Uint8Array
 async function getFileHandle(dbName: string): Promise<FileSystemFileHandle> {
   const root = await navigator.storage.getDirectory();
   return root.getFileHandle(`${dbName}.db`, { create: true });
+}
+
+/** Migrate from legacy IndexedDB storage (3 keys: dbName, dbName-iv, dbName-salt) to OPFS. */
+async function migrateFromIndexedDb(dbName: string, passPhrase: string): Promise<LoadResult | null> {
+  const store = IDB.createStore('sqljs-documentstore', 'databases');
+
+  const [encryptedData, iv, salt] = await IDB.getMany<Uint8Array>([dbName, `${dbName}-iv`, `${dbName}-salt`], store);
+  if (!encryptedData || !iv || !salt) return null;
+
+  const k = await getKey(passPhrase, new Uint8Array(salt));
+  const decrypted = await decrypt(k.key, new Uint8Array(iv), new Uint8Array(encryptedData));
+  const rawData = new Uint8Array(decrypted);
+
+  await handleSave(dbName, k.key, rawData);
+  await IDB.delMany([dbName, `${dbName}-iv`, `${dbName}-salt`], store);
+
+  return { rawData, key: k.key, salt: k.salt, isNew: false };
 }
 
 async function handleSave(dbName: string, key: CryptoKey, rawData: Uint8Array): Promise<void> {
@@ -65,6 +84,10 @@ interface LoadResult {
 }
 
 async function handleLoad(dbName: string, passPhrase: string): Promise<LoadResult> {
+  // Attempt migration from legacy IndexedDB format
+  const migrated = await migrateFromIndexedDb(dbName, passPhrase);
+  if (migrated) return migrated;
+
   const handle = await getFileHandle(dbName);
   const accessHandle = await handle.createSyncAccessHandle();
   try {

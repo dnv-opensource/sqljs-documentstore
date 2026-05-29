@@ -11,6 +11,9 @@ importers:
       async-lock:
         specifier: ^1.4.1
         version: 1.4.1
+      idb-keyval:
+        specifier: ^6.2.4
+        version: 6.2.4
       lodash:
         specifier: ^4.18.1
         version: 4.18.1
@@ -215,6 +218,9 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
+  idb-keyval@6.2.4:
+    resolution: {integrity: sha512-D/NzHWUmYJGXi++z67aMSrnisb9A3621CyRK5G89JyTlN13C8xf0g04DLxUKMufPem3e3L2JAXR6Z00OWy183Q==}
+
   lodash@4.18.1:
     resolution: {integrity: sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q==}
 
@@ -354,6 +360,8 @@ snapshots:
       '@esbuild/win32-arm64': 0.28.0
       '@esbuild/win32-ia32': 0.28.0
       '@esbuild/win32-x64': 0.28.0
+
+  idb-keyval@6.2.4: {}
 
   lodash@4.18.1: {}
 

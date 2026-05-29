@@ -10,8 +10,9 @@
     "/src"
   ],
   "scripts": {
+    "clean": "rimraf dist .temp",
     "build:worker": "tsc --project tsconfig.worker.json && node scripts/buildWorker.cjs",
-    "build": "tsc --project tsconfig.worker.json && node scripts/buildWorker.cjs && tsc"
+    "build": "pnpm run build:worker && tsc --project tsconfig.app.json"
   },
   "keywords": [
     "SQLite",
@@ -30,6 +31,7 @@
   "private": false,
   "dependencies": {
     "async-lock": "^1.4.1",
+    "idb-keyval": "^6.2.4",
     "lodash": "^4.18.1",
     "sql.js": "^1.14.1"
   },

@@ -8,7 +8,8 @@ async function build() {
     bundle: true,
     format: 'iife',
     write: false,
-    target: 'es2020',
+    target: 'es2022',
+    tsconfig: path.join(__dirname, '../tsconfig.worker.json'),
   });
 
   const code = result.outputFiles[0].text;

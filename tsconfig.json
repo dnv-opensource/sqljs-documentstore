@@ -1,16 +1,7 @@
 {
-  "compilerOptions": {
-    "moduleResolution": "Bundler",
-    "module": "ESNext",
-    "target": "ES2022",
-    "strict": true,
-    "esModuleInterop": true,
-    "lib": ["ES2022", "DOM"],
-    "sourceMap": true,
-    "declaration": true,
-    "rootDir": "./src",
-    "outDir": "./dist"
-  },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/persistenceWorker.ts"]
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.worker.json" }
+  ]
 }
