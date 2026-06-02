@@ -9,10 +9,16 @@
     "/dist",
     "/src"
   ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "scripts": {
     "clean": "rimraf dist .temp",
     "build:worker": "tsc --project tsconfig.worker.json && node scripts/buildWorker.cjs",
-    "build": "pnpm run build:worker && tsc --project tsconfig.app.json",
+    "build": "pnpm run build:worker && tsup",
     "test": "vitest",
     "e2e": "pnpm run build && node e2e/bundle.cjs && playwright test"
   },
@@ -43,6 +49,7 @@
     "@types/lodash": "^4.17.24",
     "@types/sql.js": "^1.4.11",
     "esbuild": "^0.28.0",
+    "tsup": "^8.5.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7"
   },
