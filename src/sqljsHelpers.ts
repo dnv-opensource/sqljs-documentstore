@@ -1,5 +1,6 @@
 import * as sqlite from 'sql.js';
 import { createStore, get, getMany, setMany } from 'idb-keyval';
+import * as lz4 from 'lz4-wasm';
 
 export interface EncryptedDataItem {
   salt: Uint8Array;
@@ -18,7 +19,8 @@ export namespace sqljsPersistence {
   }
 
   async function _save(dbName: string, key: CryptoKey, salt: Uint8Array, db: Pick<sqlite.Database, 'export'>): Promise<void> {
-    const encryptedData = await cryptoHelpers.encrypt(key, salt, db.export());
+    const compressed = compressionHelpers.compress(db.export());
+    const encryptedData = await cryptoHelpers.encrypt(key, salt, compressed);
     await setMany([
       [`${dbName}`, encryptedData.data],
       [`${dbName}-iv`, encryptedData.iv],
@@ -37,7 +39,8 @@ export namespace sqljsPersistence {
 
     const k = await cryptoHelpers.getKey(passPhrase, salt);
     const existingData = await cryptoHelpers.decrypt(k.key, iv as BufferSource, encryptedData as BufferSource);
-    return { key: k.key, database: new sqlJsStatic.Database(new Uint8Array(existingData)) };
+    const rawData = compressionHelpers.decompress(new Uint8Array(existingData));
+    return { key: k.key, database: new sqlJsStatic.Database(rawData) };
   }
 }
 
@@ -57,6 +60,32 @@ export namespace sqljsHelpers {
 
   export function isTable(db: Pick<sqlite.Database, 'exec'>, table: string): boolean { return db.exec("SELECT count(1) FROM sqlite_master WHERE type='table' AND name=?;", [table])[0]!.values[0][0] as number > 0; }
   export function sanitizeParams(params: any[]): sqlite.SqlValue[] { return params.map(v => v == undefined ? null : v == true ? 1 : v == false ? 0 : v); }
+}
+
+export namespace compressionHelpers {
+  // Marker prepended to lz4-compressed payloads so we can detect them on load.
+  // A raw SQLite export always begins with "SQLite format 3\0", so this 4-byte
+  // marker can never collide with legacy (uncompressed) data.
+  const MAGIC = new Uint8Array([0x4c, 0x5a, 0x34, 0x01]); // "LZ4\x01"
+
+  export function compress(data: Uint8Array): Uint8Array {
+    const compressed = lz4.compress(data);
+    const out = new Uint8Array(MAGIC.length + compressed.length);
+    out.set(MAGIC, 0);
+    out.set(compressed, MAGIC.length);
+    return out;
+  }
+
+  export function decompress(data: Uint8Array): Uint8Array {
+    if (!isCompressed(data)) return data; // legacy payloads were stored uncompressed
+    return lz4.decompress(data.subarray(MAGIC.length));
+  }
+
+  function isCompressed(data: Uint8Array): boolean {
+    if (data.length < MAGIC.length) return false;
+    for (let i = 0; i < MAGIC.length; i++) if (data[i] !== MAGIC[i]) return false;
+    return true;
+  }
 }
 
 export namespace cryptoHelpers {
