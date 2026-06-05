@@ -26,6 +26,43 @@ const {key, database} = await sqljsPersistence.load('mydb', 'mySecretDbKey', sql
 const flush = flushHelpers.createAsyncFlushQueue(() => sqljsPersistence.save('mydb', key, database));
 const lockedDatabase = new LockedDatabase(database, flush);
 ```
+
+#### Compression (optional)
+
+By default the database is stored uncompressed. To compress it before encryption,
+pass a `CompressionCodec` to both `load` and `save`. The library is codec-agnostic,
+so you choose the compressor and own how its (often wasm/ESM) bundle is loaded.
+
+```ts
+import * as lz4 from 'lz4-wasm';
+
+const codec: CompressionCodec = {
+  compress: (b) => lz4.compress(b),
+  decompress: (b) => lz4.decompress(b),
+};
+
+const {key, database} = await sqljsPersistence.load('mydb', 'mySecretDbKey', sqlJsStatic, codec);
+const flush = flushHelpers.createAsyncFlushQueue(() => sqljsPersistence.save('mydb', key, database, codec));
+```
+
+Or using the browser's built-in gzip via `CompressionStream`, with no dependency:
+
+```ts
+const codec: CompressionCodec = {
+  async compress(b) {
+    const s = new Response(b).body!.pipeThrough(new CompressionStream('gzip'));
+    return new Uint8Array(await new Response(s).arrayBuffer());
+  },
+  async decompress(b) {
+    const s = new Response(b).body!.pipeThrough(new DecompressionStream('gzip'));
+    return new Uint8Array(await new Response(s).arrayBuffer());
+  },
+};
+```
+
+> The same codec must be supplied on both `save` and `load`. Stores written with a
+> codec cannot be read back without one.
+
 recommend creating a wrapping "DocumentStores" class as shown below:
 ```ts
 public class DocumentStores extends Db {

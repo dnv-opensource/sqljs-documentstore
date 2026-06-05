@@ -1,6 +1,5 @@
 import * as sqlite from 'sql.js';
 import { createStore, get, getMany, setMany } from 'idb-keyval';
-import * as lz4 from 'lz4-wasm';
 
 export interface EncryptedDataItem {
   salt: Uint8Array;
@@ -8,18 +7,30 @@ export interface EncryptedDataItem {
   data: Uint8Array;
 }
 
+/**
+ * Pluggable compression codec. Supply your own (e.g. lz4-wasm, or the browser's
+ * CompressionStream) to compress the database before it is encrypted and stored.
+ *
+ * The same codec must be supplied on both `save` and `load`. Both methods may be
+ * sync or async. If no codec is supplied, data is stored uncompressed.
+ */
+export interface CompressionCodec {
+  compress(data: Uint8Array): Uint8Array | Promise<Uint8Array>;
+  decompress(data: Uint8Array): Uint8Array | Promise<Uint8Array>;
+}
+
 export namespace sqljsPersistence {
   const store = createStore('sqljs-documentstore', 'databases');
   
-  export async function save(dbName: string, key: CryptoKey, db: Pick<sqlite.Database, 'export'>): Promise<void> {
+  export async function save(dbName: string, key: CryptoKey, db: Pick<sqlite.Database, 'export'>, codec?: CompressionCodec): Promise<void> {
     const saltItem = await get<Uint8Array>(`${dbName}-salt`, store);
     const salt = saltItem ? new Uint8Array(saltItem) : crypto.getRandomValues(new Uint8Array(16));
 
-    await _save(dbName, key, salt, db);
+    await _save(dbName, key, salt, db, codec);
   }
 
-  async function _save(dbName: string, key: CryptoKey, salt: Uint8Array, db: Pick<sqlite.Database, 'export'>): Promise<void> {
-    const compressed = compressionHelpers.compress(db.export());
+  async function _save(dbName: string, key: CryptoKey, salt: Uint8Array, db: Pick<sqlite.Database, 'export'>, codec?: CompressionCodec): Promise<void> {
+    const compressed = await compressionHelpers.compress(db.export(), codec);
     const encryptedData = await cryptoHelpers.encrypt(key, salt, compressed);
     await setMany([
       [`${dbName}`, encryptedData.data],
@@ -28,18 +39,18 @@ export namespace sqljsPersistence {
     ], store)
   }
 
-  export async function load(dbName: string, passPhrase: string, sqlJsStatic: sqlite.SqlJsStatic): Promise<{database: sqlite.Database, key: CryptoKey}> {
+  export async function load(dbName: string, passPhrase: string, sqlJsStatic: sqlite.SqlJsStatic, codec?: CompressionCodec): Promise<{database: sqlite.Database, key: CryptoKey}> {
     const [encryptedData, iv, salt] = await getMany<Uint8Array>([dbName, `${dbName}-iv`, `${dbName}-salt`], store);
     if (!encryptedData) {
       const newDb = new sqlJsStatic.Database();
       const k = await cryptoHelpers.getKey(passPhrase);
-      await _save(dbName, k.key, k.salt, newDb);
+      await _save(dbName, k.key, k.salt, newDb, codec);
       return { key: k.key, database: newDb };
     }
 
     const k = await cryptoHelpers.getKey(passPhrase, salt);
     const existingData = await cryptoHelpers.decrypt(k.key, iv as BufferSource, encryptedData as BufferSource);
-    const rawData = compressionHelpers.decompress(new Uint8Array(existingData));
+    const rawData = await compressionHelpers.decompress(new Uint8Array(existingData), codec);
     return { key: k.key, database: new sqlJsStatic.Database(rawData) };
   }
 }
@@ -63,22 +74,25 @@ export namespace sqljsHelpers {
 }
 
 export namespace compressionHelpers {
-  // Marker prepended to lz4-compressed payloads so we can detect them on load.
+  // Marker prepended to codec-compressed payloads so we can detect them on load.
   // A raw SQLite export always begins with "SQLite format 3\0", so this 4-byte
-  // marker can never collide with legacy (uncompressed) data.
+  // marker can never collide with uncompressed data. Kept stable across versions
+  // so previously-stored compressed databases remain readable (with a codec).
   const MAGIC = new Uint8Array([0x4c, 0x5a, 0x34, 0x01]); // "LZ4\x01"
 
-  export function compress(data: Uint8Array): Uint8Array {
-    const compressed = lz4.compress(data);
+  export async function compress(data: Uint8Array, codec?: CompressionCodec): Promise<Uint8Array> {
+    if (!codec) return data; // no codec => store uncompressed
+    const compressed = await codec.compress(data);
     const out = new Uint8Array(MAGIC.length + compressed.length);
     out.set(MAGIC, 0);
     out.set(compressed, MAGIC.length);
     return out;
   }
 
-  export function decompress(data: Uint8Array): Uint8Array {
-    if (!isCompressed(data)) return data; // legacy payloads were stored uncompressed
-    return lz4.decompress(data.subarray(MAGIC.length));
+  export async function decompress(data: Uint8Array, codec?: CompressionCodec): Promise<Uint8Array> {
+    if (!isCompressed(data)) return data; // payload was stored uncompressed
+    if (!codec) throw new Error('This database was stored with a compression codec; supply the matching codec to load it.');
+    return await codec.decompress(data.subarray(MAGIC.length));
   }
 
   function isCompressed(data: Uint8Array): boolean {
