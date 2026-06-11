@@ -36,7 +36,11 @@ export class LockedDatabase implements ILockedDatabase {
         this.flush();
         queuedItem.timing.flushMs = performance.now() - ms;
       } catch (error) {
-        this.run(txnId, 'ROLLBACK TRANSACTION;');
+        try {
+          this.run(txnId, 'ROLLBACK TRANSACTION;');
+        } catch (rollbackError) {
+          console.error(`txnAsync: failed to rollback transaction ${txnId} after error:`, rollbackError);
+        }
         throw error;
       } finally {
         this.txnId = undefined;
