@@ -2,7 +2,10 @@ import {BindParams, QueryExecResult, type Database} from 'sql.js';
 import * as AsyncLock from "async-lock";
 
 export class LockedDatabase implements ILockedDatabase {
-  lock = new AsyncLock();
+  // Shared across all LockedDatabase instances so concurrent txns serialize even
+  // when more than one wrapper is created over the same underlying sql.js connection.
+  static sharedLock = new AsyncLock();
+  lock = LockedDatabase.sharedLock;
   config: configType = {};
   state: {queued: queuedItemType[]} = { queued: [] };
   txnId?: string;
@@ -10,7 +13,7 @@ export class LockedDatabase implements ILockedDatabase {
   constructor(private db: Pick<Database, 'exec'|'run'>, private flush: () => void) {}
 
   run(txnId: string, sql: string, params: BindParams = []): void {
-    if (txnId !== this.txnId) throw new Error(`run: transaction doesn't match, txn in progress: ${this.txnId}, attempted txn: ${this.txnId}`);
+    if (txnId !== this.txnId) throw new Error(`run: transaction doesn't match, txn in progress: ${this.txnId}, attempted txn: ${txnId}`);
     this.db.run(sql, params);
   }
 
@@ -44,8 +47,8 @@ export class LockedDatabase implements ILockedDatabase {
         throw error;
       } finally {
         this.txnId = undefined;
-        this.state.queued.pop();
-        this.config.loggingHook?.(queuedItem);
+        this.state.queued.splice(this.state.queued.indexOf(queuedItem), 1);
+        await this.config.loggingHook?.(queuedItem);
       }
     });
   }
@@ -67,12 +70,16 @@ export class LockedDatabase implements ILockedDatabase {
       this.flush();
       queuedItem.timing.flushMs = performance.now() - ms;
     } catch (error) {
-      this.run(txnId, 'ROLLBACK TRANSACTION;');
-      throw error;
+        try {
+          this.run(txnId, 'ROLLBACK TRANSACTION;');
+        } catch (rollbackError) {
+          console.error(`txn: failed to rollback transaction ${txnId} after error:`, rollbackError);
+        }
+        throw error;
     } finally {
       this.txnId = undefined;
-      this.state.queued.pop();
-      this.config.loggingHook?.(queuedItem);
+      this.state.queued.splice(this.state.queued.indexOf(queuedItem), 1);
+      void this.config.loggingHook?.(queuedItem);
     }
   }
 }
