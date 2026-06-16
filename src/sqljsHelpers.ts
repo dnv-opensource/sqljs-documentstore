@@ -1,5 +1,6 @@
 import * as sqlite from 'sql.js';
 import { createStore, get, getMany, setMany } from 'idb-keyval';
+import { LockedDatabase } from './LockedDatabase';
 
 export interface EncryptedDataItem {
   salt: Uint8Array;
@@ -124,6 +125,9 @@ export namespace cryptoHelpers {
 
 export namespace flushHelpers {
   export function createAsyncFlushQueue(saveFn: () => Promise<void>) {
+    const _saveFn = saveFn;
+    saveFn = async () => LockedDatabase.sharedLock.acquire('txn_lock', async () => await _saveFn()); //force flush to wait for any active transaction - avoiding bugs from e.g. sql.js db.export causes active transaction to be cleared
+
     let isRunning = false;
     let queued = false;
 

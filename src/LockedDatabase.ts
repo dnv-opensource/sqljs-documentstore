@@ -10,14 +10,17 @@ export class LockedDatabase implements ILockedDatabase {
   state: {queued: queuedItemType[]} = { queued: [] };
   txnId?: string;
 
-  constructor(private db: Pick<Database, 'exec'|'run'>, private flush: () => void) {}
+  constructor(private db: Pick<Database, 'exec'|'run'>, private flush: () => Promise<void> | void ) {}
 
   run(txnId: string, sql: string, params: BindParams = []): void {
+    this.config.loggingHook?.(`run: txn ${txnId}: ${sql} with params ${JSON.stringify(params)}`);
     if (txnId !== this.txnId) throw new Error(`run: transaction doesn't match, txn in progress: ${this.txnId}, attempted txn: ${txnId}`);
     this.db.run(sql, params);
   }
 
-  exec(sql: string, params: BindParams = []): QueryExecResult[] { return this.db.exec(sql, params); }
+  exec(sql: string, params: BindParams = []): QueryExecResult[] { 
+    this.config.loggingHook?.(`exec: ${sql} with params ${JSON.stringify(params)}`);
+    return this.db.exec(sql, params); }
 
   /**
    * all write operations must be wrapped in a transaction
@@ -32,15 +35,15 @@ export class LockedDatabase implements ILockedDatabase {
       try {
         queuedItem.timing.waitMs = performance.now() - ms; ms = performance.now();
         this.txnId = txnId;
-        this.run(txnId, 'BEGIN TRANSACTION;');
+        this.run(txnId, `BEGIN TRANSACTION; -- ${description}`);
         await actions(txnId);
         queuedItem.timing.actionMs = performance.now() - ms; ms = performance.now();
-        this.run(txnId, 'COMMIT TRANSACTION;');
-        this.flush();
+        this.run(txnId, `COMMIT TRANSACTION; -- ${description}`);
+        void this.flush();
         queuedItem.timing.flushMs = performance.now() - ms;
       } catch (error) {
         try {
-          this.run(txnId, 'ROLLBACK TRANSACTION;');
+          this.run(txnId, `ROLLBACK TRANSACTION; -- ${description}`);
         } catch (rollbackError) {
           console.error(`txnAsync: failed to rollback transaction ${txnId} after error:`, rollbackError);
         }
@@ -48,7 +51,7 @@ export class LockedDatabase implements ILockedDatabase {
       } finally {
         this.txnId = undefined;
         this.state.queued.splice(this.state.queued.indexOf(queuedItem), 1);
-        await this.config.loggingHook?.(queuedItem);
+        await this.config.queuedItemTypeHook?.(queuedItem);
       }
     });
   }
@@ -63,15 +66,15 @@ export class LockedDatabase implements ILockedDatabase {
     try {
       queuedItem.timing.waitMs = performance.now() - ms; ms = performance.now();
       this.txnId = txnId;
-      this.run(txnId, 'BEGIN TRANSACTION;');
+      this.run(txnId, `BEGIN TRANSACTION; -- ${description}`);
       actions(txnId);
       queuedItem.timing.actionMs = performance.now() - ms; ms = performance.now();
-      this.run(txnId, 'COMMIT TRANSACTION;');
-      this.flush();
+      this.run(txnId, `COMMIT TRANSACTION; -- ${description}`);
+      void this.flush();
       queuedItem.timing.flushMs = performance.now() - ms;
     } catch (error) {
         try {
-          this.run(txnId, 'ROLLBACK TRANSACTION;');
+          this.run(txnId, `ROLLBACK TRANSACTION; -- ${description}`);
         } catch (rollbackError) {
           console.error(`txn: failed to rollback transaction ${txnId} after error:`, rollbackError);
         }
@@ -79,11 +82,11 @@ export class LockedDatabase implements ILockedDatabase {
     } finally {
       this.txnId = undefined;
       this.state.queued.splice(this.state.queued.indexOf(queuedItem), 1);
-      void this.config.loggingHook?.(queuedItem);
+      void this.config.queuedItemTypeHook?.(queuedItem);
     }
   }
 }
 
 export interface ILockedDatabase extends LockedDatabase{};
-export interface configType { loggingHook?: (q: queuedItemType) => Promise<void> };
+export interface configType { queuedItemTypeHook?: (q: queuedItemType) => Promise<void>, loggingHook?: (s: string) => void };
 export interface queuedItemType {txnId: string, description: string, timing: { waitMs: number, actionMs: number, flushMs: number}};
