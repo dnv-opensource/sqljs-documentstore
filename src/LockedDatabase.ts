@@ -1,5 +1,5 @@
 import {BindParams, QueryExecResult, type Database} from 'sql.js';
-import * as AsyncLock from "async-lock";
+import AsyncLock from "async-lock";
 
 export class LockedDatabase implements ILockedDatabase {
   // Shared across all LockedDatabase instances so concurrent txns serialize even

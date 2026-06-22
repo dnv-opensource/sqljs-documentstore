@@ -3,6 +3,7 @@
     "moduleResolution": "node",
     "module": "commonjs",
     "target": "es5",
+    "esModuleInterop": true,
     "strict": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
@@ -11,5 +12,6 @@
     "declaration": true,
     "outDir": "./dist"
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts"]
 }

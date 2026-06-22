@@ -7,6 +7,10 @@ import { SqlValue } from 'sql.js';
 
 export type TIndexType<T> = Record<string, ((obj: T) => string|number|boolean|undefined)>;
 
+export type TIndexKeys<TIndex> = keyof {
+  [K in keyof TIndex as (string extends K ? never : (number extends K ? never : K))]: unknown
+};
+
 export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType<T>> implements ITypedDocumentStore<T, TIndex> {
   public tableName;
   public indexedFields;
@@ -19,7 +23,7 @@ export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType
   private setSql;
   private insertSql;
 
-  constructor(private _db: () => ILockedDatabase, tableName: string, docType: T /* used for generic inference magic */, indexedFields: TIndex = <never>{}) {
+  constructor(private _db: () => ILockedDatabase, tableName: string, docType: T /* used for generic inference magic */, indexedFields: TIndex = <TIndex>{}) {
     this.tableName = tableName;
     this.indexedFields = indexedFields;
 
@@ -133,7 +137,7 @@ export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType
    * @example .query(x => `where ${x.name} like ? and ${x.active} = ?`, [nameSearchValue, isActive]);
    * @example .query(x => `where ${x.name} like ?1 and ${x.active} = ?2`, [nameSearchValue, isActive]);
    */
-  async query(whereSql: ((x: Record<keyof TIndex, string>) => string), params: unknown[]) {
+  async query(whereSql: ((x: Record<TIndexKeys<TIndex>, string>) => string), params: unknown[]) {
     const querySql = `select ${dbRow.id}, ${dbRow.json} from ${this.tableName} ${whereSql(this._buildQueryObject())};`;
     const results = sqljsHelpers.query<DbRow>(this.db, querySql, params);
     return results.map(x => <T>JSON.parse(x.json));
@@ -142,9 +146,10 @@ export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType
   /**
    * Return just index values, helpful for doing fast queries on indexed fields without needing to fetch and deserialize the entire object
    */
-  async queryIndexes(whereSql?: ((x: Record<keyof TIndex | 'id', string>) => string), params?: unknown[]): Promise<({ [k in keyof(TIndex)]: ReturnType<TIndex[k]>} & Pick<T, 'id'>)[]> {
-    const querySql = `select ${dbRow.id}${this._indexColumnNamesSql} from ${this.tableName} ${whereSql !== undefined ? whereSql(this._buildQueryObject()) : ''};`;
-    const results = sqljsHelpers.query<({ [k in keyof(TIndex)]: ReturnType<TIndex[k]>} & Pick<T, 'id'>)>(this.db, querySql, params);
+  async queryIndexes(whereSql?: ((x: Record<TIndexKeys<TIndex> | 'id', string>) => string), params?: unknown[]): Promise<({ [k in TIndexKeys<TIndex>]: ReturnType<TIndex[k]>} & Pick<T, 'id'>)[]> {
+    const queryObject = { ...this._buildQueryObject(), id: dbRow.id as string } as Record<TIndexKeys<TIndex> | 'id', string>;
+    const querySql = `select ${dbRow.id}${this._indexColumnNamesSql} from ${this.tableName} ${whereSql !== undefined ? whereSql(queryObject) : ''};`;
+    const results = sqljsHelpers.query<({ [k in TIndexKeys<TIndex>]: ReturnType<TIndex[k]>} & Pick<T, 'id'>)>(this.db, querySql, params);
     return results;
   }
 
@@ -193,7 +198,7 @@ export class TypedDocumentStore<T extends IdInterface, TIndex extends TIndexType
   async removeMany(txnId: string, ids: Pick<T, 'id'>['id'][]) { if (ids.length === 0) return; this.db.run(txnId, `delete from ${this.tableName} where ${dbRow.id} in (${'?,'.repeat(ids.length).slice(0, -1)});`, sqljsHelpers.sanitizeParams(ids)); }
   async removeAll(txnId: string) { this.db.run(txnId, `delete from ${this.tableName};`); }
 
-  private _buildQueryObject(): Record<keyof TIndex, string> {
+  private _buildQueryObject(): Record<TIndexKeys<TIndex>, string> {
     const queryObject = <any>{};
     this._indexColumns.forEach(columnName => ((queryObject[columnName]) = <never>columnName));
     return queryObject;
