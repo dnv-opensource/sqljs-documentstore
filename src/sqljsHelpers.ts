@@ -20,14 +20,42 @@ export interface CompressionCodec {
   decompress(data: Uint8Array): Uint8Array | Promise<Uint8Array>;
 }
 
+export interface SqlJsPersistenceLoadOptions {
+  /** Optional codec used to compress data before encryption and decompress it after decryption. */
+  codec?: CompressionCodec;
+
+  /**
+   * Supplies the database passphrase only when a new database must be created,
+   * or when a legacy database has no persisted CryptoKey yet.
+   * The provider is not called when the persisted key can decrypt the database.
+   */
+  getPassPhrase?: () => string | Promise<string>;
+}
+
 export namespace sqljsPersistence {
   const store = createStore('sqljs-documentstore', 'databases');
-  
-  export async function save(dbName: string, key: CryptoKey, db: Pick<sqlite.Database, 'export'>, codec?: CompressionCodec): Promise<void> {
-    const saltItem = await get<Uint8Array>(`${dbName}-salt`, store);
-    const salt = saltItem ? new Uint8Array(saltItem) : crypto.getRandomValues(new Uint8Array(16));
+  const stateByDatabase = new Map<string, { key: CryptoKey, salt: Uint8Array }>();
 
-    await _save(dbName, key, salt, db, codec);
+  async function getSalt(dbName: string): Promise<Uint8Array | undefined> {
+    const salt = await get<Uint8Array>(`${dbName}-salt`, store);
+    return salt ? new Uint8Array(salt) : undefined;
+  }
+  
+  /**
+   * Encrypts and persists the current database using the key established by load.
+   * Call load before save when initializing a new JavaScript context.
+   */
+  export async function save(dbName: string, db: Pick<sqlite.Database, 'export'>, codec?: CompressionCodec): Promise<void> {
+    let state = stateByDatabase.get(dbName);
+    if (!state) {
+      const key = await get<CryptoKey>(`${dbName}-key`, store);
+      const salt = await getSalt(dbName);
+      if (!key || !salt) throw new Error(`database '${dbName}' has not been loaded`);
+      state = { key, salt };
+      stateByDatabase.set(dbName, state);
+    }
+
+    await _save(dbName, state.key, state.salt, db, codec);
   }
 
   async function _save(dbName: string, key: CryptoKey, salt: Uint8Array, db: Pick<sqlite.Database, 'export'>, codec?: CompressionCodec): Promise<void> {
@@ -36,23 +64,58 @@ export namespace sqljsPersistence {
     await setMany([
       [`${dbName}`, encryptedData.data],
       [`${dbName}-iv`, encryptedData.iv],
-      [`${dbName}-salt`, encryptedData.salt]
+      [`${dbName}-salt`, encryptedData.salt],
+      [`${dbName}-key`, key]
     ], store)
   }
 
-  export async function load(dbName: string, passPhrase: string, sqlJsStatic: sqlite.SqlJsStatic, codec?: CompressionCodec): Promise<{database: sqlite.Database, key: CryptoKey}> {
-    const [encryptedData, iv, salt] = await getMany<Uint8Array>([dbName, `${dbName}-iv`, `${dbName}-salt`], store);
+  async function persistKey(dbName: string, key: CryptoKey, salt: Uint8Array): Promise<void> {
+    await setMany([[`${dbName}-key`, key]], store);
+    stateByDatabase.set(dbName, { key, salt });
+  }
+
+  /**
+   * Loads an existing database or creates one when it does not exist.
+   *
+   * The passphrase provider is requested lazily for first-time creation or
+   * legacy migration. It can be omitted when a persisted CryptoKey exists.
+   */
+  export async function load(dbName: string, sqlJsStatic: sqlite.SqlJsStatic, options: SqlJsPersistenceLoadOptions = {}): Promise<{database: sqlite.Database, created: boolean, migrated: boolean}> {
+    const [encryptedData, iv, persistedSalt] = await getMany<any>([dbName, `${dbName}-iv`, `${dbName}-salt`], store);
+    const cachedState = stateByDatabase.get(dbName);
+    const persistedKey = cachedState?.key ?? await get<CryptoKey>(`${dbName}-key`, store);
+
     if (!encryptedData) {
+      if (!options.getPassPhrase) throw new Error(`database '${dbName}' does not exist and no passphrase provider was provided`);
+
       const newDb = new sqlJsStatic.Database();
-      const k = await cryptoHelpers.getKey(passPhrase);
-      await _save(dbName, k.key, k.salt, newDb, codec);
-      return { key: k.key, database: newDb };
+      const derivedKey = await cryptoHelpers.getKey(await options.getPassPhrase());
+  await _save(dbName, derivedKey.key, derivedKey.salt, newDb, options.codec);
+      stateByDatabase.set(dbName, derivedKey);
+      return { database: newDb, created: true, migrated: false };
     }
 
-    const k = await cryptoHelpers.getKey(passPhrase, salt);
-    const existingData = await cryptoHelpers.decrypt(k.key, iv as BufferSource, encryptedData as BufferSource);
-    const rawData = await compressionHelpers.decompress(new Uint8Array(existingData), codec);
-    return { key: k.key, database: new sqlJsStatic.Database(rawData) };
+    if (!persistedSalt) throw new Error(`database '${dbName}' is missing its salt`);
+
+    let key = persistedKey;
+    let migrated = false;
+    let existingData: ArrayBuffer;
+    try {
+      if (!key) throw new Error('persisted CryptoKey is missing');
+      existingData = await cryptoHelpers.decrypt(key, iv as BufferSource, encryptedData as BufferSource);
+    } catch (error) {
+      if (!options.getPassPhrase) throw error;
+
+      const derivedKey = await cryptoHelpers.getKey(await options.getPassPhrase(), persistedSalt);
+      existingData = await cryptoHelpers.decrypt(derivedKey.key, iv as BufferSource, encryptedData as BufferSource);
+      key = derivedKey.key;
+      migrated = !persistedKey;
+      await persistKey(dbName, key, persistedSalt);
+    }
+
+    if (!stateByDatabase.has(dbName)) stateByDatabase.set(dbName, { key: key!, salt: persistedSalt });
+    const rawData = await compressionHelpers.decompress(new Uint8Array(existingData), options.codec);
+    return { database: new sqlJsStatic.Database(rawData), created: false, migrated };
   }
 }
 

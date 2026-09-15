@@ -21,12 +21,13 @@ exported pieces:
 first, load your database  
 ```ts
 const sqlJsStatic = await sqlite({ locateFile: (file: string) => `${import.meta.env.BASE_URL}assets/${file}` }); //ensure sql-wasm.wasm is placed in dist/assets/ folder
-const {key, database} = await sqljsPersistence.load('mydb', 'mySecretDbKey', sqlJsStatic);
+const {database} = await sqljsPersistence.load('mydb', sqlJsStatic, {
+  getPassPhrase: () => promptForDatabasePassphrase()
+});
 
-const flush = flushHelpers.createAsyncFlushQueue(() => sqljsPersistence.save('mydb', key, database));
+const flush = flushHelpers.createAsyncFlushQueue(() => sqljsPersistence.save('mydb', database));
 const lockedDatabase = new LockedDatabase(database, flush);
 ```
-
 #### Compression (optional)
 
 By default the database is stored uncompressed. To compress it before encryption,
@@ -41,8 +42,11 @@ const codec: CompressionCodec = {
   decompress: (b) => lz4.decompress(b),
 };
 
-const {key, database} = await sqljsPersistence.load('mydb', 'mySecretDbKey', sqlJsStatic, codec);
-const flush = flushHelpers.createAsyncFlushQueue(() => sqljsPersistence.save('mydb', key, database, codec));
+const {database} = await sqljsPersistence.load('mydb', sqlJsStatic, {
+  codec,
+  getPassPhrase: () => promptForDatabasePassphrase()
+});
+const flush = flushHelpers.createAsyncFlushQueue(() => sqljsPersistence.save('mydb', database, codec));
 ```
 
 Or using the browser's built-in gzip via `CompressionStream`, with no dependency:
@@ -64,6 +68,10 @@ const codec: CompressionCodec = {
 > codec cannot be read back without one.
 
 recommend creating a wrapping "DocumentStores" class as shown below:
+The passphrase provider is called only when creating a database or migrating an existing database that does not yet have a persisted `CryptoKey`. Once the key is persisted, subsequent loads can omit the provider. `save` uses the key cached by `load` and does not prompt or read it from IndexedDB during normal operation.
+
+
+Recommend creating a wrapping "DocumentStores" class as shown below to store entire document db "schema":
 ```ts
 public class DocumentStores extends Db {
   public CustomerData = new TypedDocumentStore(this.db, 'CustomerData', <CustomerData>{}, {
